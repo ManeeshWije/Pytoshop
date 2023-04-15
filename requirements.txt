@@ -1,0 +1,4 @@
+tk
+Pillow
+matplotlib
+numpy
