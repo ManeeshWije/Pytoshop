@@ -2,6 +2,7 @@ from tkinter import filedialog as fd, ttk
 from Toolbox import Toolbox
 from PIL import Image, ImageTk
 import tkinter as tk
+import cv2
 
 
 root = tk.Tk()
@@ -66,7 +67,7 @@ def uploadFile():
     img = Image.open(filename)
 
     global toolboxImage
-    toolboxImage = Toolbox(img) # create a new class after uploading
+    toolboxImage = Toolbox(img)  # create a new class after uploading
 
     tkImage = ImageTk.PhotoImage(img)
     canvas.config(width=img.width, height=img.height)
@@ -98,9 +99,12 @@ def updateImage():
     currentDimensions = currentWidth + "x" + currentHeight
     label2.configure(text=currentDimensions)
 
+
 # each frame corresponds to a horizontal section of buttons and/or text input
 buttonsFrame = ttk.Frame(root)
 buttonsFrame.pack(side=tk.TOP, fill=tk.X)
+buttonsFrame1 = ttk.Frame(root)
+buttonsFrame1.pack(side=tk.TOP, fill=tk.X)
 buttonsFrame2 = ttk.Frame(root)
 buttonsFrame2.pack(side=tk.TOP, fill=tk.X)
 buttonsFrame3 = ttk.Frame(root)
@@ -134,13 +138,13 @@ b3 = ttk.Button(
 b3.pack(side=tk.LEFT)
 
 b4 = ttk.Button(
-    buttonsFrame,
+    buttonsFrame1,
     text="Horizontally Flip",
     command=lambda: [toolboxImage.horizontalFlip(), updateImage()],
 )
 b4.pack(side=tk.LEFT)
 b5 = ttk.Button(
-    buttonsFrame,
+    buttonsFrame1,
     text="Vertically Flip",
     command=lambda: [toolboxImage.verticalFlip(), updateImage()],
 )
@@ -205,7 +209,11 @@ c2 = tk.Checkbutton(
 )
 c2.pack(side=tk.LEFT)
 c2r = tk.Checkbutton(
-    buttonsFrame4, text="Reflected Indexing", variable=reflectCrop, onvalue=1, offvalue=0
+    buttonsFrame4,
+    text="Reflected Indexing",
+    variable=reflectCrop,
+    onvalue=1,
+    offvalue=0,
 )
 c2r.pack(side=tk.LEFT)
 
@@ -220,7 +228,7 @@ b8 = ttk.Button(
             canvas.coords(rectangleID)[2],
             canvas.coords(rectangleID)[3],
             circCrop.get(),
-            reflectCrop.get()
+            reflectCrop.get(),
         ),
         updateImage(),
     ],
@@ -273,9 +281,7 @@ b11 = ttk.Button(
 b11.pack(side=tk.LEFT)
 
 
-l6 = ttk.Label(
-    buttonsFrame7, text="Enter gamma value for power law mapping: "
-)
+l6 = ttk.Label(buttonsFrame7, text="Enter gamma value for power law mapping: ")
 l6.pack(side=tk.LEFT)
 
 t6 = ttk.Entry(buttonsFrame7, textvariable=gamma, width=5)
@@ -290,6 +296,47 @@ b12 = ttk.Button(
     ],
 )
 b12.pack(side=tk.LEFT)
+
+
+# open live webcam window
+def openWebcam():
+    cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 200)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 200)
+    while True:
+        ret, frame = cap.read()
+        cv2.imshow("press <Space> to take a picture and 'q' to exit", frame)
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+        elif cv2.waitKey(1) & 0xFF == ord(" "):
+            cv2.imwrite("webcamImage.jpg", frame)
+
+            img = Image.open("webcamImage.jpg")
+            global toolboxImage
+            toolboxImage = Toolbox(img)
+            tkImage = ImageTk.PhotoImage(img)
+            canvas.config(
+                width=toolboxImage.baseImage.width, height=toolboxImage.baseImage.height
+            )
+            canvas.img = tkImage
+            canvas.pack(expand=True)
+            canvas.create_image(0, 0, image=tkImage, anchor=tk.NW)
+
+            currentWidth = str(toolboxImage.baseImage.width)
+            currentHeight = str(toolboxImage.baseImage.height)
+            currentDimensions = currentWidth + "x" + currentHeight
+            label2.configure(text=currentDimensions)
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+bw1 = ttk.Button(
+    buttonsFrame,
+    text="Use Webcam",
+    command=lambda: [openWebcam()],
+)
+bw1.pack(side=tk.LEFT)
 
 b13 = ttk.Button(
     buttonsFrame,
