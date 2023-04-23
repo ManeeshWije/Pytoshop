@@ -61,7 +61,7 @@ def updateSelectionRect(event):
 
 
 def uploadFile():
-    filetypes = [("Jpg Files", "*.jpg"), ("Png Files", "*.png")]
+    filetypes = [("all files", "*.*")]
     filename = fd.askopenfilename(filetypes=filetypes)
 
     img = Image.open(filename)
