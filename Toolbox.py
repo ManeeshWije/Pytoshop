@@ -128,8 +128,9 @@ class Toolbox:
         self.scaledWidth = self.baseImage.width
         self.scaledHeight = self.baseImage.height
         self.scaledPixelMap = self.baseImage.load()
+        self.nonRotatedImage = self.baseImage
 
-    def rotate(self, degrees):
+    def rotate(self, degrees, n=2):
         # this is so the bounding box resets after getting bigger and bigger
         if not self.isRotated:
             self.isRotated = True
@@ -160,17 +161,33 @@ class Toolbox:
         center = (width // 2, height // 2)
         newCenter = (newWidth // 2, newHeight // 2)
 
+        # oversample the source image to avoid aliasing
+        # SUPER SLOW
+        oversampledWidth = n * width
+        oversampledHeight = n * height
+        oversampledImage = Image.new(
+            self.baseImage.mode, (oversampledWidth, oversampledHeight)
+        )
+
         for i in range(width):
             for j in range(height):
+                for k in range(n):
+                    for l in range(n):
+                        oversampledImage.putpixel(
+                            (n * i + k, n * j + l), pixelMap[i, j]
+                        )
+
+        for i in range(oversampledWidth):
+            for j in range(oversampledHeight):
                 # calculate rotated coordinates and add the new origin to each
-                x = i - center[0]
-                y = j - center[1]
+                x = i / n - center[0]
+                y = j / n - center[1]
                 newI = round(x * cosTheta - y * sinTheta) + newCenter[0]
                 newJ = round(x * sinTheta + y * cosTheta) + newCenter[1]
 
                 # since coord might go beyond the size of original, we consider pixels which are in bounds
                 if newI >= 0 and newJ >= 0 and newI < newWidth and newJ < newHeight:
-                    newImage.putpixel((newI, newJ), pixelMap[i, j])
+                    newImage.putpixel((newI, newJ), oversampledImage.getpixel((i, j)))
         self.baseImage = newImage
 
     def crop(self, x, y, w, h, circCrop, reflectCrop):
@@ -197,6 +214,7 @@ class Toolbox:
                             (j - y) % (tileSizeHeight) + y,
                         ]
             self.baseImage = circIndexImage
+            self.nonRotatedImage = self.baseImage
         elif circCrop == 0 and reflectCrop == 1:
             # create new image and if in bounds, put those same pixels from original, otherwise do circular indexing
             if imgCopy.mode == "RGB":
@@ -230,6 +248,8 @@ class Toolbox:
                             (newI, newJ)
                         )
             self.baseImage = reflectedIndexImage
+            self.nonRotatedImage = self.baseImage
+
         elif circCrop == 1 and reflectCrop == 1:
             print("ERROR: cannot select two options")
         # zero padding by default
@@ -246,6 +266,7 @@ class Toolbox:
                     else:
                         newImagePixelMap[i, j] = 0
             self.baseImage = newImage
+            self.nonRotatedImage = self.baseImage
 
     def horizontalShear(self, offset):
         imgCopy, width, height, pixelMap = self.getImageAttributes()
@@ -270,7 +291,7 @@ class Toolbox:
                 newI = i + int(j * offset)
                 imgCopy.putpixel((newI, j), pixelMap[i, j])
         self.baseImage = imgCopy
-        self.nonRotatedImage = imgCopy
+        self.nonRotatedImage = self.baseImage
 
     def verticalShear(self, offset):
         imgCopy, width, height, pixelMap = self.getImageAttributes()
@@ -295,7 +316,7 @@ class Toolbox:
                 newJ = j + int(i * offset)
                 imgCopy.putpixel((i, newJ), pixelMap[i, j])
         self.baseImage = imgCopy
-        self.nonRotatedImage = imgCopy
+        self.nonRotatedImage = self.baseImage
 
     def linearMapping(self, a, b):
         imgCopy, width, height, _ = self.getImageAttributes()
@@ -317,7 +338,7 @@ class Toolbox:
                     newPixel = (r, g, b)
                     newImage.putpixel((i, j), newPixel)
             self.baseImage = newImage
-            self.nonRotatedImage = newImage
+            self.nonRotatedImage = self.baseImage
         else:
             newImage = Image.new("L", (width, height))
             for i in range(width):
@@ -327,7 +348,7 @@ class Toolbox:
                     newGreyValue = a * greyValue + b
                     newImage.putpixel((i, j), int(newGreyValue))
             self.baseImage = newImage
-            self.nonRotatedImage = newImage
+            self.nonRotatedImage = self.baseImage
 
     def powerLawMapping(self, gamma):
         imgCopy, width, height, _ = self.getImageAttributes()
@@ -347,7 +368,7 @@ class Toolbox:
                     newPixel = (r, g, b)
                     newImage.putpixel((i, j), newPixel)
             self.baseImage = newImage
-            self.nonRotatedImage = newImage
+            self.nonRotatedImage = self.baseImage
         else:
             newImage = Image.new("L", (width, height))
             for i in range(width):
@@ -357,7 +378,7 @@ class Toolbox:
                     newGreyValue = 255 * (greyValue / 255) ** gamma
                     newImage.putpixel((i, j), int(newGreyValue))
             self.baseImage = newImage
-            self.nonRotatedImage = newImage
+            self.nonRotatedImage = self.baseImage
 
     def generateHistogram(self):
         imgCopy, _, _, _ = self.getImageAttributes()
@@ -424,7 +445,7 @@ class Toolbox:
             # create new image based on the equalized pixels
             newImage = Image.fromarray(equalizedPixels.astype("uint8"), mode="L")
             self.baseImage = newImage
-            self.nonRotatedImage = newImage
+            self.nonRotatedImage = self.baseImage
 
             # calculate normalized histogram for equalized image
             hist, bins = np.histogram(equalizedPixels, bins=256)
@@ -467,7 +488,7 @@ class Toolbox:
             # create new image based on the equalized pixels
             newImage = Image.fromarray(equalizedPixels.astype("uint8"), mode="RGB")
             self.baseImage = newImage
-            self.nonRotatedImage = newImage
+            self.nonRotatedImage = self.baseImage
             imageArr = np.array(newImage)
 
             # configure and draw the histogram figure
@@ -541,7 +562,7 @@ class Toolbox:
                         pixelSum[2] += int(currPixel[2] * kernel[i][j])
                 newImage.putpixel((x, y), (pixelSum[0], pixelSum[1], pixelSum[2]))
         self.baseImage = newImage
-        self.nonRotatedImage = newImage
+        self.nonRotatedImage = self.baseImage
 
     def minFilter(self):
         imgCopy, width, height, _ = self.getImageAttributes()
@@ -562,7 +583,7 @@ class Toolbox:
                     newPixel = min(pixels)
                     newImage.putpixel((i, j), newPixel)
             self.baseImage = newImage
-            self.nonRotatedImage = newImage
+            self.nonRotatedImage = self.baseImage
         else:
             newImage = Image.new("RGB", (width, height))
             for i in range(1, width - 1):
@@ -578,7 +599,7 @@ class Toolbox:
                     newPixel = (min(r), min(g), min(b))
                     newImage.putpixel((i, j), newPixel)
             self.baseImage = newImage
-            self.nonRotatedImage = newImage
+            self.nonRotatedImage = self.baseImage
 
     def medianFilter(self):
         imgCopy, width, height, _ = self.getImageAttributes()
@@ -597,7 +618,7 @@ class Toolbox:
                     newPixel = pixels[4]
                     newImage.putpixel((i, j), newPixel)
             self.baseImage = newImage
-            self.nonRotatedImage = newImage
+            self.nonRotatedImage = self.baseImage
         else:
             newImage = Image.new("RGB", (width, height))
             for i in range(1, width - 1):
@@ -617,7 +638,7 @@ class Toolbox:
                     newPixel = (r[4], g[4], b[4])
                     newImage.putpixel((i, j), newPixel)
             self.baseImage = newImage
-            self.nonRotatedImage = newImage
+            self.nonRotatedImage = self.baseImage
 
     def maxFilter(self):
         imgCopy, width, height, _ = self.getImageAttributes()
@@ -634,7 +655,7 @@ class Toolbox:
                     newPixel = max(pixels)
                     newImage.putpixel((i, j), newPixel)
             self.baseImage = newImage
-            self.nonRotatedImage = newImage
+            self.nonRotatedImage = self.baseImage
         else:
             newImage = Image.new("RGB", (width, height))
             for i in range(1, width - 1):
@@ -649,7 +670,7 @@ class Toolbox:
                     newPixel = (max(r), max(g), max(b))
                     newImage.putpixel((i, j), newPixel)
             self.baseImage = newImage
-            self.nonRotatedImage = newImage
+            self.nonRotatedImage = self.baseImage
 
     def edgeDetection(self):
         imgCopy, width, height, _ = self.getImageAttributes()
@@ -676,4 +697,4 @@ class Toolbox:
         # convert back so we can use existing transformation functions
         newImage = newImage.convert("RGB")
         self.baseImage = newImage
-        self.nonRotatedImage = newImage
+        self.nonRotatedImage = self.baseImage
