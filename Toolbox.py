@@ -515,7 +515,7 @@ class Toolbox:
         rows = kernel.split("],[")
 
         # convert each string element to an integer
-        kernel = [int(x) for row in rows for x in row.split(",")]
+        kernel = [float(x) for row in rows for x in row.split(",")]
 
         # calculate the shape of the array
         kernelShape = (len(rows), len(rows[0].split(",")))
