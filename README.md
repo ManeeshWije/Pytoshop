@@ -7,6 +7,7 @@
     pip3 install -r requirements.txt
     ```
 -   This will install necessary libraries like Tkinter for the UI, Pillow to load images, numpy to perform array operations, and matplotlib to draw figures
+-   NOTE: you may need to create a python virtual environment and also install `tk` globally on your machine
 -   Then simply run the GUI file by doing:
 -   ```
     python3 gui.py
