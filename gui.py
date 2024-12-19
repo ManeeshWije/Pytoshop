@@ -1,422 +1,664 @@
-from tkinter import filedialog as fd, ttk
-from Toolbox import Toolbox
-from PIL import Image, ImageTk
 import tkinter as tk
 import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from tkinter import filedialog as fd, ttk
+from PIL import ImageTk, Image as PILImage
+from ops import ImageWrapper
 
 
-root = tk.Tk()
-root.title("Image Toolbox")
-root.geometry("1000x1000")
-baseFont = ("times", 18, "bold")
+class ImageEditorApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Pytoshop")
+        self.root.geometry("1200x800")
 
+        # Create main frame to organize layout
+        self.main_frame = tk.Frame(self.root)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
 
-# variables that get passed in by user input
-newWidth = tk.StringVar()
-newHeight = tk.StringVar()
-currentWidth = tk.StringVar()
-currentHeight = tk.StringVar()
-currentDimensions = tk.StringVar()
-degrees = tk.StringVar()
-xCrop = tk.StringVar()
-yCrop = tk.StringVar()
-hCrop = tk.StringVar()
-wCrop = tk.StringVar()
-shear = tk.StringVar()
-a = tk.StringVar()
-b = tk.StringVar()
-gamma = tk.StringVar()
-topX, topY, botX, botY = 0, 0, 0, 0
-rectangleID = None
-kernel = tk.StringVar()
+        # Image display area
+        self.image_label = tk.Label(self.main_frame)
+        self.image_label.pack(side=tk.TOP, expand=True)
 
-canvas = tk.Canvas(
-    root,
-    width=1000,
-    height=1000,
-    borderwidth=0,
-    highlightthickness=0,
-)
-label2 = ttk.Label(root)
-label2.pack(side=tk.BOTTOM)
+        # Initialize webcam capture
+        self.cam = None
+        self.base_image = None
 
-# for interactive cropping region
-rectangleID = canvas.create_rectangle(0, 0, 0, 0, outline="white")
+        # Variables for user inputs
+        self.new_width = tk.StringVar()
+        self.new_height = tk.StringVar()
+        self.rotation_degrees = tk.StringVar()
+        self.vert_shear_value = tk.StringVar()
+        self.horiz_shear_value = tk.StringVar()
+        self.linear_a = tk.StringVar()
+        self.linear_b = tk.StringVar()
+        self.gamma_value = tk.StringVar()
+        self.kernel_value = tk.StringVar()
 
+        # For crop positions
+        self.crop_start_x = tk.StringVar()
+        self.crop_start_y = tk.StringVar()
+        self.crop_end_x = tk.StringVar()
+        self.crop_end_y = tk.StringVar()
 
-# record first click pos
-def getMousePosition(event):
-    global topX, topY
-    topX, topY = int(canvas.canvasx(event.x)), int(canvas.canvasy(event.y))
+        # Create frames for different operation groups
+        self.create_basic_operations_frame()
+        self.create_transformation_frame()
+        self.create_more_transformation_frames()
+        self.create_color_mapping_frame()
+        self.create_filtering_frame()
 
+        # Initialize image-related attributes
+        self.base_image = None
+        self.non_rotated_image = None
+        self.image_wrapper = None
+        self.curr_rotation = 0
+        self.is_rotated = False
 
-# on mouse move, updated the coordinates then we know the region we should crop
-def updateSelectionRect(event):
-    global rectangleID
-    global botX, botY
-    botX, botY = int(canvas.canvasx(event.x)), int(canvas.canvasy(event.y))
-    canvas.coords(rectangleID, topX, topY, botX, botY)
-    canvas.lift(rectangleID)
-    # print(canvas.coords(rectangleID))
+    def create_basic_operations_frame(self):
+        """Create frame for basic image operations."""
+        basic_frame = ttk.LabelFrame(self.main_frame, text="Basic Operations")
+        basic_frame.pack(fill=tk.X, padx=10, pady=5)
 
+        # Buttons for basic operations
+        buttons = [
+            ("Load Image", self.load_image),
+            ("Flip Horizontal", self.flip_horizontal),
+            ("Flip Vertical", self.flip_vertical),
+            ("Open Image", self.open_image),
+            ("Save Image", self.save_image),
+            ("Capture from Webcam", self.open_webcam),
+            ("Calculate Histogram", self.calculate_histogram),
+            ("Equalize Histogram", self.equalize_histogram),
+        ]
 
-def uploadFile():
-    filetypes = [("all files", "*.*")]
-    filename = fd.askopenfilename(filetypes=filetypes)
+        for text, command in buttons:
+            btn = ttk.Button(basic_frame, text=text, command=command)
+            btn.pack(side=tk.LEFT, padx=5)
 
-    img = Image.open(filename)
+    def create_transformation_frame(self):
+        """Create frame for image transformations."""
+        transform_frame = ttk.LabelFrame(self.main_frame, text="Transformations")
+        transform_frame.pack(fill=tk.X, padx=10, pady=5)
 
-    global toolboxImage
-    toolboxImage = Toolbox(img)  # create a new class after uploading
+        # Scaling
+        ttk.Label(transform_frame, text="Scale (W x H):").pack(side=tk.LEFT)
+        ttk.Entry(transform_frame, textvariable=self.new_width, width=5).pack(
+            side=tk.LEFT
+        )
+        ttk.Entry(transform_frame, textvariable=self.new_height, width=5).pack(
+            side=tk.LEFT
+        )
 
-    tkImage = ImageTk.PhotoImage(img)
-    canvas.config(width=img.width, height=img.height)
-    canvas.img = tkImage  # Keep reference in case this code is put into a function.
-    canvas.pack(expand=True)
-    canvas.create_image(0, 0, image=tkImage, anchor=tk.NW)
+        bilinear_var = tk.IntVar()
+        ttk.Checkbutton(transform_frame, text="Bilinear", variable=bilinear_var).pack(
+            side=tk.LEFT
+        )
 
-    # always show updated dimensions
-    currentWidth = str(img.width)
-    currentHeight = str(img.height)
-    currentDimensions = currentWidth + "x" + currentHeight
-    label2.configure(text=currentDimensions)
+        ttk.Button(
+            transform_frame,
+            text="Scale",
+            command=lambda: self.scale_image(
+                self.new_width.get(), self.new_height.get(), bilinear_var.get()
+            ),
+        ).pack(side=tk.LEFT)
 
-    return toolboxImage
+        # Rotation
+        ttk.Label(transform_frame, text="Rotate (degrees):").pack(side=tk.LEFT)
+        ttk.Entry(transform_frame, textvariable=self.rotation_degrees, width=5).pack(
+            side=tk.LEFT
+        )
+        ttk.Button(
+            transform_frame,
+            text="Rotate",
+            command=lambda: self.rotate_image(self.rotation_degrees.get(), 2),
+        ).pack(side=tk.LEFT)
 
+    def create_more_transformation_frames(self):
+        more_transform_frame = ttk.LabelFrame(
+            self.main_frame, text="More Transformations"
+        )
+        more_transform_frame.pack(fill=tk.X, padx=10, pady=5)
 
-# upon every operation, update image will be called to update the base image instance variable and the new width and height if necessary
-def updateImage():
-    tkImage = ImageTk.PhotoImage(toolboxImage.baseImage)
-    canvas.config(
-        width=toolboxImage.baseImage.width, height=toolboxImage.baseImage.height
-    )
-    canvas.img = tkImage  # Keep reference in case this code is put into a function.
-    canvas.pack(expand=True)
-    canvas.create_image(0, 0, image=tkImage, anchor=tk.NW)
+        # Crop Section
+        crop_frame = ttk.LabelFrame(more_transform_frame, text="Crop")
+        crop_frame.pack(fill=tk.X, padx=10, pady=5)
 
-    currentWidth = str(toolboxImage.baseImage.width)
-    currentHeight = str(toolboxImage.baseImage.height)
-    currentDimensions = currentWidth + "x" + currentHeight
-    label2.configure(text=currentDimensions)
+        # Crop Coordinate Inputs
+        ttk.Label(crop_frame, text="Start X:").pack(side=tk.LEFT, padx=5)
+        ttk.Entry(crop_frame, textvariable=self.crop_start_x, width=5).pack(
+            side=tk.LEFT, padx=5
+        )
 
+        ttk.Label(crop_frame, text="Start Y:").pack(side=tk.LEFT, padx=5)
+        ttk.Entry(crop_frame, textvariable=self.crop_start_y, width=5).pack(
+            side=tk.LEFT, padx=5
+        )
 
-# each frame corresponds to a horizontal section of buttons and/or text input
-buttonsFrame = ttk.Frame(root)
-buttonsFrame.pack(side=tk.TOP, fill=tk.X)
-buttonsFrame1 = ttk.Frame(root)
-buttonsFrame1.pack(side=tk.TOP, fill=tk.X)
-buttonsFrame2 = ttk.Frame(root)
-buttonsFrame2.pack(side=tk.TOP, fill=tk.X)
-buttonsFrame3 = ttk.Frame(root)
-buttonsFrame3.pack(side=tk.TOP, fill=tk.X)
-buttonsFrame4 = ttk.Frame(root)
-buttonsFrame4.pack(side=tk.TOP, fill=tk.X)
-buttonsFrame5 = ttk.Frame(root)
-buttonsFrame5.pack(side=tk.TOP, fill=tk.X)
-buttonsFrame6 = ttk.Frame(root)
-buttonsFrame6.pack(side=tk.TOP, fill=tk.X)
-buttonsFrame7 = ttk.Frame(root)
-buttonsFrame7.pack(side=tk.TOP, fill=tk.X)
-buttonsFrame8 = ttk.Frame(root)
-buttonsFrame8.pack(side=tk.TOP, fill=tk.X)
-buttonsFrame9 = ttk.Frame(root)
-buttonsFrame9.pack(side=tk.TOP, fill=tk.X)
+        ttk.Label(crop_frame, text="End X:").pack(side=tk.LEFT, padx=5)
+        ttk.Entry(crop_frame, textvariable=self.crop_end_x, width=5).pack(
+            side=tk.LEFT, padx=5
+        )
 
-b1 = ttk.Button(buttonsFrame, text="Upload Image", command=uploadFile)
-b1.pack(side=tk.LEFT)
+        ttk.Label(crop_frame, text="End Y:").pack(side=tk.LEFT, padx=5)
+        ttk.Entry(crop_frame, textvariable=self.crop_end_y, width=5).pack(
+            side=tk.LEFT, padx=5
+        )
 
-b2 = ttk.Button(
-    buttonsFrame, text="Open Image", command=lambda: [toolboxImage.baseImage.show()]
-)
-b2.pack(side=tk.LEFT)
+        # Crop Mode Dropdown
+        crop_mode_var = tk.StringVar(value="None")
+        ttk.Label(crop_frame, text="Mode:").pack(side=tk.LEFT, padx=5)
+        crop_mode_menu = ttk.OptionMenu(
+            crop_frame,
+            crop_mode_var,
+            "None",
+            "Circular Indexing",
+            "Reflected Indexing",
+        )
+        crop_mode_menu.pack(side=tk.LEFT, padx=5)
 
-b3 = ttk.Button(
-    buttonsFrame,
-    text="Save Image",
-    command=lambda: [toolboxImage.baseImage.save("toolboxImage.png")],
-)
-b3.pack(side=tk.LEFT)
+        ttk.Button(
+            crop_frame,
+            text="Crop",
+            command=lambda: self.crop_image(
+                self.crop_start_x.get(),
+                self.crop_start_y.get(),
+                self.crop_end_x.get(),
+                self.crop_end_y.get(),
+                crop_mode_var.get(),
+            ),
+        ).pack(side=tk.LEFT, padx=5)
 
-b4 = ttk.Button(
-    buttonsFrame1,
-    text="Horizontally Flip",
-    command=lambda: [toolboxImage.horizontalFlip(), updateImage()],
-)
-b4.pack(side=tk.LEFT)
-b5 = ttk.Button(
-    buttonsFrame1,
-    text="Vertically Flip",
-    command=lambda: [toolboxImage.verticalFlip(), updateImage()],
-)
-b5.pack(side=tk.LEFT)
+        # Shear Section
+        ttk.Label(more_transform_frame, text="Vertical Shear (0-1):").pack(side=tk.LEFT)
+        ttk.Entry(
+            more_transform_frame, textvariable=self.vert_shear_value, width=5
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            more_transform_frame,
+            text="Vertical Shear",
+            command=lambda: self.vertical_shear(self.vert_shear_value.get()),
+        ).pack(side=tk.LEFT)
+        ttk.Label(more_transform_frame, text="Horizontal Shear (0-1):").pack(
+            side=tk.LEFT
+        )
+        ttk.Entry(
+            more_transform_frame, textvariable=self.horiz_shear_value, width=5
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            more_transform_frame,
+            text="Horizontal Shear",
+            command=lambda: self.horizontal_shear(self.horiz_shear_value.get()),
+        ).pack(side=tk.LEFT)
 
-bilinear = tk.IntVar()
-# this value will be checked in the toolbox func to see if they want to perform bilinear interpolation
-c3 = tk.Checkbutton(
-    buttonsFrame2,
-    text="Bilinear Interpolation",
-    variable=bilinear,
-    onvalue=1,
-    offvalue=0,
-)
+    def create_color_mapping_frame(self):
+        """Create frame for color mapping operations."""
+        mapping_frame = ttk.LabelFrame(self.main_frame, text="Color Mapping")
+        mapping_frame.pack(fill=tk.X, padx=10, pady=5)
 
-l1 = ttk.Label(buttonsFrame2, text="Enter New Dimensions (width, height): ")
-l1.pack(side=tk.LEFT)
-c3.pack(side=tk.LEFT)
+        # Linear mapping
+        ttk.Label(mapping_frame, text="Linear Mapping (a, b):").pack(side=tk.LEFT)
+        ttk.Entry(mapping_frame, textvariable=self.linear_a, width=5).pack(side=tk.LEFT)
+        ttk.Entry(mapping_frame, textvariable=self.linear_b, width=5).pack(side=tk.LEFT)
+        ttk.Button(
+            mapping_frame,
+            text="Apply Linear",
+            command=lambda: self.linear_mapping(
+                self.linear_a.get(), self.linear_b.get()
+            ),
+        ).pack(side=tk.LEFT)
 
-t1 = ttk.Entry(buttonsFrame2, textvariable=newWidth, width=5)
-t1.pack(side=tk.LEFT)
+        # Power law mapping
+        ttk.Label(mapping_frame, text="Gamma:").pack(side=tk.LEFT)
+        ttk.Entry(mapping_frame, textvariable=self.gamma_value, width=5).pack(
+            side=tk.LEFT
+        )
+        ttk.Button(
+            mapping_frame,
+            text="Power Law",
+            command=lambda: self.power_mapping(self.gamma_value.get()),
+        ).pack(side=tk.LEFT)
 
-t2 = ttk.Entry(buttonsFrame2, textvariable=newHeight, width=5)
-t2.pack(side=tk.LEFT)
+    def create_filtering_frame(self):
+        """Create frame for image filtering operations."""
+        filter_frame = ttk.LabelFrame(self.main_frame, text="Filters")
+        filter_frame.pack(fill=tk.X, padx=10, pady=5)
 
-b6 = ttk.Button(
-    buttonsFrame2,
-    text="Scale Image",
-    command=lambda: [
-        toolboxImage.scale(newWidth.get(), newHeight.get(), bilinear.get()),
-        updateImage(),
-    ],
-)
+        # Filtering buttons
+        filter_buttons = [
+            ("Edge Detection", self.edge_detection),
+            ("Min Filter", self.min_filter),
+            ("Median Filter", self.median_filter),
+            ("Max Filter", self.max_filter),
+        ]
 
-b6.pack(side=tk.LEFT)
-
-l2 = ttk.Label(buttonsFrame3, text="Enter degrees of rotation: ")
-l2.pack(side=tk.LEFT)
-
-t3 = ttk.Entry(buttonsFrame3, textvariable=degrees, width=5)
-t3.pack(side=tk.LEFT)
-b7 = ttk.Button(
-    buttonsFrame3,
-    text="Rotate Image",
-    command=lambda: [
-        toolboxImage.rotate(degrees.get()),
-        updateImage(),
-    ],
-)
-b7.pack(side=tk.LEFT)
-
-l3 = ttk.Label(
-    buttonsFrame4, text="Use the mouse on the image to select area to crop: "
-)
-l3.pack(side=tk.LEFT)
-
-# check if the user wants to perform circular indexing or reflected indexing
-circCrop = tk.IntVar()
-reflectCrop = tk.IntVar()
-c2 = tk.Checkbutton(
-    buttonsFrame4, text="Circular Indexing", variable=circCrop, onvalue=1, offvalue=0
-)
-c2.pack(side=tk.LEFT)
-c2r = tk.Checkbutton(
-    buttonsFrame4,
-    text="Reflected Indexing",
-    variable=reflectCrop,
-    onvalue=1,
-    offvalue=0,
-)
-c2r.pack(side=tk.LEFT)
-
-# coords are coming from initial mouse click and drag to last position of mouse
-b8 = ttk.Button(
-    buttonsFrame4,
-    text="Crop Image",
-    command=lambda: [
-        toolboxImage.crop(
-            canvas.coords(rectangleID)[0],
-            canvas.coords(rectangleID)[1],
-            canvas.coords(rectangleID)[2],
-            canvas.coords(rectangleID)[3],
-            circCrop.get(),
-            reflectCrop.get(),
-        ),
-        updateImage(),
-    ],
-)
-b8.pack(side=tk.LEFT)
-
-l4 = ttk.Label(buttonsFrame5, text="Enter offset for shear: ")
-l4.pack(side=tk.LEFT)
-
-t4 = ttk.Entry(buttonsFrame5, textvariable=shear, width=5)
-t4.pack(side=tk.LEFT)
-
-b9 = ttk.Button(
-    buttonsFrame5,
-    text="Horizontal Shear",
-    command=lambda: [
-        toolboxImage.horizontalShear(shear.get()),
-        updateImage(),
-    ],
-)
-b9.pack(side=tk.LEFT)
-
-b10 = ttk.Button(
-    buttonsFrame5,
-    text="Vertical Shear",
-    command=lambda: [
-        toolboxImage.verticalShear(shear.get()),
-        updateImage(),
-    ],
-)
-b10.pack(side=tk.LEFT)
-
-l5 = ttk.Label(buttonsFrame6, text="Enter values for linear mapping: (a, b)")
-l5.pack(side=tk.LEFT)
-
-t5 = ttk.Entry(buttonsFrame6, textvariable=a, width=5)
-t5.pack(side=tk.LEFT)
-
-t5b = ttk.Entry(buttonsFrame6, textvariable=b, width=5)
-t5b.pack(side=tk.LEFT)
-
-b11 = ttk.Button(
-    buttonsFrame6,
-    text="Apply",
-    command=lambda: [
-        toolboxImage.linearMapping(a.get(), b.get()),
-        updateImage(),
-    ],
-)
-b11.pack(side=tk.LEFT)
-
-
-l6 = ttk.Label(buttonsFrame7, text="Enter gamma value for power law mapping: ")
-l6.pack(side=tk.LEFT)
-
-t6 = ttk.Entry(buttonsFrame7, textvariable=gamma, width=5)
-t6.pack(side=tk.LEFT)
-
-b12 = ttk.Button(
-    buttonsFrame7,
-    text="Apply",
-    command=lambda: [
-        toolboxImage.powerLawMapping(gamma.get()),
-        updateImage(),
-    ],
-)
-b12.pack(side=tk.LEFT)
-
-
-# open live webcam window
-def openWebcam():
-    cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 200)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 200)
-    while True:
-        ret, frame = cap.read()
-        cv2.imshow("press <Space> to take a picture and 'q' to exit", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-        elif cv2.waitKey(1) & 0xFF == ord(" "):
-            cv2.imwrite("webcamImage.jpg", frame)
-
-            img = Image.open("webcamImage.jpg")
-            global toolboxImage
-            toolboxImage = Toolbox(img)
-            tkImage = ImageTk.PhotoImage(img)
-            canvas.config(
-                width=toolboxImage.baseImage.width, height=toolboxImage.baseImage.height
+        for text, command in filter_buttons:
+            ttk.Button(filter_frame, text=text, command=command).pack(
+                side=tk.LEFT, padx=5
             )
-            canvas.img = tkImage
-            canvas.pack(expand=True)
-            canvas.create_image(0, 0, image=tkImage, anchor=tk.NW)
 
-            currentWidth = str(toolboxImage.baseImage.width)
-            currentHeight = str(toolboxImage.baseImage.height)
-            currentDimensions = currentWidth + "x" + currentHeight
-            label2.configure(text=currentDimensions)
-            break
-    cap.release()
-    cv2.destroyAllWindows()
+        # Convolution
+        ttk.Label(filter_frame, text="Kernel: (ex. [[1,1,1],[1,1,1],[1,1,1]])").pack(
+            side=tk.LEFT
+        )
+        ttk.Entry(filter_frame, textvariable=self.kernel_value, width=20).pack(
+            side=tk.LEFT
+        )
+        ttk.Button(
+            filter_frame,
+            text="Convolution",
+            command=lambda: self.convolution(self.kernel_value.get()),
+        ).pack(side=tk.LEFT)
+
+    def load_image(self):
+        file_path = fd.askopenfilename(
+            title="Select an Image", filetypes=[("Image Files", "*.*")]
+        )
+        if file_path:
+            # Convert image to RGB mode to ensure consistent format
+            self.base_image = PILImage.open(file_path).convert("RGB")
+            self.non_rotated_image = self.base_image
+            self.display_image(self.base_image)
+            print(f"IMAGE DIMENSIONS {self.base_image.width}x{self.base_image.height}")
+
+            # Convert PIL image to numpy array
+            img_array = np.array(self.base_image)
+
+            # Create ImageWrapper with correct dimensions
+            self.image_wrapper = ImageWrapper(
+                self.base_image.width, self.base_image.height
+            )
+
+            # Safely copy pixel data to C image structure
+            try:
+                for y in range(self.base_image.height):
+                    for x in range(self.base_image.width):
+                        pixel = img_array[y, x]
+                        index = y * self.base_image.width + x
+                        self.image_wrapper.img.contents.rgb[index].r = int(pixel[0])
+                        self.image_wrapper.img.contents.rgb[index].g = int(pixel[1])
+                        self.image_wrapper.img.contents.rgb[index].b = int(pixel[2])
+            except Exception as e:
+                print(f"Error copying image data: {e}")
+                print(f"Image shape: {img_array.shape}")
+                # Optionally, reset image_wrapper
+                self.image_wrapper = None
+
+    def open_webcam(self):
+        """Capture an image from the webcam and load it in the app."""
+        if self.cam is None:
+            self.cam = cv2.VideoCapture(0)
+
+        if not self.cam.isOpened():
+            print("Error: Could not open webcam.")
+            return
+
+        # Capture a single frame
+        ret, frame = self.cam.read()
+        if ret:
+            # Convert the frame to RGB (OpenCV uses BGR by default)
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Convert the frame to a PIL image
+            pil_image = PILImage.fromarray(frame_rgb)
+
+            # Update the base_image with the new captured frame
+            self.base_image = pil_image
+            self.update_image_wrapper_from_pil(self.base_image)
+
+            # Display the captured image
+            self.display_image(pil_image)
+
+    # this is used if we do a python operation that manipulates image such as
+    # equalize histogram then perform a C operation such as flipping
+    def update_image_wrapper_from_pil(self, pil_image):
+        # Convert PIL image to numpy array
+        img_array = np.array(pil_image)
+
+        # Update image_wrapper with new image data
+        self.image_wrapper = ImageWrapper(pil_image.width, pil_image.height)
+        for y in range(pil_image.height):
+            for x in range(pil_image.width):
+                pixel = img_array[y, x]
+                index = y * pil_image.width + x
+                if pil_image.mode == "L":  # Greyscale image
+                    self.image_wrapper.img.contents.rgb[index].r = int(pixel)
+                    self.image_wrapper.img.contents.rgb[index].g = int(pixel)
+                    self.image_wrapper.img.contents.rgb[index].b = int(pixel)
+                elif pil_image.mode == "RGB":  # RGB image
+                    self.image_wrapper.img.contents.rgb[index].r = int(pixel[0])
+                    self.image_wrapper.img.contents.rgb[index].g = int(pixel[1])
+                    self.image_wrapper.img.contents.rgb[index].b = int(pixel[2])
+
+    def display_image(self, pil_image):
+        img_tk = ImageTk.PhotoImage(pil_image)
+        self.image_label.config(image=img_tk)
+        self.image_label.image = img_tk  # Keep a reference to avoid garbage collection
+
+    def open_image(self):
+        if self.base_image:
+            self.base_image.show()
+
+    def save_image(self):
+        if self.base_image:
+            file_path = fd.asksaveasfilename(defaultextension=".png")
+            if file_path:
+                self.base_image.save(file_path)
+
+    def scale_image(self, width, height, bilinear):
+        if self.image_wrapper:
+            self.image_wrapper.scale(int(width), int(height), int(bilinear))
+            scaled_image = self.image_wrapper.to_pil_image()
+            self.base_image = scaled_image
+            self.display_image(self.base_image)
+            self.non_rotated_image = self.base_image
+
+    def rotate_image(self, degrees, n):
+        if self.image_wrapper:
+            if not self.is_rotated:
+                self.is_rotated = True
+                self.non_rotated_image = self.base_image
+                self.curr_rotation = float(degrees)
+            else:
+                # Reset the image_wrapper with the original non-rotated image data
+                self.base_image = self.non_rotated_image
+                self.update_image_wrapper_from_pil(self.non_rotated_image)
+                self.curr_rotation += float(degrees)
+
+            self.image_wrapper.rotate(self.curr_rotation, n)
+            rotated_image = self.image_wrapper.to_pil_image()
+            self.base_image = rotated_image
+            self.display_image(self.base_image)
+
+    def crop_image(self, start_x, start_y, end_x, end_y, crop_mode):
+        mode = 0
+        if crop_mode == "None":
+            mode = 0
+        elif crop_mode == "Circular Indexing":
+            mode = 1
+        elif crop_mode == "Reflected Indexing":
+            mode = 2
+        else:
+            print("ERROR: Invalid crop mode")
+            return
+
+        if self.base_image:
+            image_width = self.base_image.width
+            image_height = self.base_image.height
+
+            # Perform bounds check
+            if (
+                int(start_x) < 0
+                or int(start_y) < 0
+                or int(end_x) > image_width
+                or int(end_y) > image_height
+                or int(start_x) >= int(end_x)
+                or int(start_y) >= int(end_y)
+            ):
+                print("ERROR: Crop coordinates are out of bounds.")
+                print(f"Image dimensions: {image_width}x{image_height}")
+                print(f"Crop coordinates: ({start_x}, {start_y}) -> ({end_x}, {end_y})")
+                return  # Do not proceed with the crop if bounds are not valid
+
+            if self.image_wrapper:
+                self.image_wrapper.crop(
+                    int(start_x), int(start_y), int(end_x), int(end_y), mode
+                )
+                cropped_image = self.image_wrapper.to_pil_image()
+                self.base_image = cropped_image
+                self.display_image(self.base_image)
+                self.non_rotated_image = self.base_image
+
+    def vertical_shear(self, offset):
+        if float(offset) > 1 or float(offset) < 0:
+            print("ERROR: Offset must be between 0 and 1")
+            return
+        if self.image_wrapper:
+            self.image_wrapper.vertical_shear(float(offset))
+            v_sheared_image = self.image_wrapper.to_pil_image()
+            self.base_image = v_sheared_image
+            self.display_image(self.base_image)
+            self.non_rotated_image = self.base_image
+
+    def horizontal_shear(self, offset):
+        if float(offset) > 1 or float(offset) < 0:
+            print("ERROR: Offset must be between 0 and 1")
+            return
+        if self.image_wrapper:
+            self.image_wrapper.horizontal_shear(float(offset))
+            h_sheared_image = self.image_wrapper.to_pil_image()
+            self.base_image = h_sheared_image
+            self.display_image(self.base_image)
+            self.non_rotated_image = self.base_image
+
+    def linear_mapping(self, a, b):
+        # if empty inputs, revert to safe default values
+        a = 1 if a == "" else float(a)
+        b = 0 if b == "" else float(b)
+        if self.image_wrapper:
+            self.image_wrapper.linear_mapping(a, b)
+            lin_image = self.image_wrapper.to_pil_image()
+            self.base_image = lin_image
+            self.display_image(self.base_image)
+            self.non_rotated_image = self.base_image
+
+    def power_mapping(self, gamma):
+        # if empty, revert to safe default value
+        gamma = 1 if gamma == "" else float(gamma)
+        if self.image_wrapper:
+            self.image_wrapper.power_mapping(gamma)
+            power_image = self.image_wrapper.to_pil_image()
+            self.base_image = power_image
+            self.display_image(self.base_image)
+            self.non_rotated_image = self.base_image
+
+    def min_filter(self):
+        if self.image_wrapper:
+            self.image_wrapper.min_filter()
+            min_image = self.image_wrapper.to_pil_image()
+            self.base_image = min_image
+            self.display_image(self.base_image)
+            self.non_rotated_image = self.base_image
+
+    def median_filter(self):
+        if self.image_wrapper:
+            self.image_wrapper.median_filter()
+            median_image = self.image_wrapper.to_pil_image()
+            self.base_image = median_image
+            self.display_image(self.base_image)
+            self.non_rotated_image = self.base_image
+
+    def max_filter(self):
+        if self.image_wrapper:
+            self.image_wrapper.max_filter()
+            max_image = self.image_wrapper.to_pil_image()
+            self.base_image = max_image
+            self.display_image(self.base_image)
+            self.non_rotated_image = self.base_image
+
+    def convolution(self, kernel):
+        # Strip the outer square brackets
+        kernel_string = kernel.strip()[1:-1]  # Remove the outermost [ and ]
+        # Split the string into rows based on the '],[' separator
+        rows = kernel_string.split("],[")
+        # Initialize the list to store the kernel values
+        k = []
+        for row in rows:
+            # Remove spaces and split by commas, ensuring that each value is clean
+            clean_row = [x.strip(" []") for x in row.split(",")]
+            # Convert each value in the row to an integer
+            k.append([int(x) for x in clean_row])
+
+        if self.image_wrapper:
+            self.image_wrapper.convolution(k, len(k), len(k[0]))
+            conv_image = self.image_wrapper.to_pil_image()
+            self.base_image = conv_image
+            self.display_image(self.base_image)
+            self.non_rotated_image = self.base_image
+
+    def flip_horizontal(self):
+        if self.image_wrapper:
+            self.image_wrapper.horizontal_flip()
+            flipped_image = self.image_wrapper.to_pil_image()
+            self.display_image(flipped_image)
+            self.base_image = flipped_image
+            self.non_rotated_image = self.base_image
+
+    def flip_vertical(self):
+        if self.image_wrapper:
+            self.image_wrapper.vertical_flip()
+            flipped_image = self.image_wrapper.to_pil_image()
+            self.display_image(flipped_image)
+            self.base_image = flipped_image
+            self.non_rotated_image = self.base_image
+
+    def edge_detection(self):
+        if self.image_wrapper:
+            self.image_wrapper.edge_detection()
+            modified_image = self.image_wrapper.to_pil_image()
+            self.display_image(modified_image)
+            self.base_image = modified_image
+            self.non_rotated_image = self.base_image
+
+    def calculate_histogram(self):
+        # if greyscale, we will have a distribution of grey levels
+        if self.base_image and self.base_image.mode == "L":
+            imageArr = np.array(self.base_image)
+            imageArr = imageArr.astype("float32")
+
+            _, _ = np.histogram(imageArr, bins=256)
+
+            # configure and draw the histogram figure
+            plt.figure()
+            plt.title("Greyscale Histogram")
+            plt.xlabel("Greyscale Value")
+            plt.ylabel("Pixel Count")
+            plt.xlim([0, 255])
+
+            plt.hist(imageArr.flatten(), bins=256)
+            plt.show()
+        else:
+            # if rgb, we will have a distribution of each of the 3 channels
+            if self.base_image:
+                r, g, b = self.base_image.split()
+                rArr, gArr, bArr = np.array(r), np.array(g), np.array(b)
+
+                # configure and draw the histogram figure
+                plt.figure()
+                plt.title("RGB Histogram")
+                plt.xlabel("Pixel Value")
+                plt.ylabel("Pixel Count")
+                plt.xlim([0, 255])
+
+                plt.hist(rArr.flatten(), bins=256, color="r", alpha=0.5)
+                plt.hist(gArr.flatten(), bins=256, color="g", alpha=0.5)
+                plt.hist(bArr.flatten(), bins=256, color="b", alpha=0.5)
+                plt.show()
+
+    def equalize_histogram(self):
+        # To equalize, we must first generate a normalized histogram
+        # then generate cumulative normalized histogram
+        # multiply values by 255
+        # done
+        if self.base_image and self.base_image.mode == "L":
+            # convert image to numpy array
+            imageArr = np.array(self.base_image)
+
+            # calculate normalized histogram
+            hist, _ = np.histogram(imageArr, bins=256)
+            normHist = hist / np.sum(hist)
+
+            # calculate cumulative normalized new pixel values
+            cdf = np.cumsum(normHist)
+            cdfNormalized = 255 * cdf / cdf[-1]
+
+            # find indices of pixels with intensity i
+            equalizedPixels = np.zeros_like(imageArr)
+            for i in range(256):
+                idx = imageArr == i
+                # set new intensity for those pixels
+                equalizedPixels[idx] = cdfNormalized[i]
+
+            # create new image based on the equalized pixels
+            newImage = PILImage.fromarray(equalizedPixels.astype("uint8"), mode="L")
+            self.base_image = newImage
+            self.non_rotated_image = self.base_image
+
+            # create or update image_wrapper with the equalized image
+            self.image_wrapper = ImageWrapper(
+                self.base_image.width, self.base_image.height
+            )
+            self.update_image_wrapper_from_pil(self.base_image)
+            self.display_image(self.base_image)
+
+            # calculate normalized histogram for equalized image
+            hist, _ = np.histogram(equalizedPixels, bins=256)
+            normHist = hist / np.sum(hist)
+
+            # calculate normalized cumulative histogram for equalized image
+            cumNormHist = np.cumsum(normHist)
+
+            # configure and draw the histogram figure
+            plt.figure()
+            plt.title("Equalized Greyscale Histogram")
+            plt.xlabel("Greyscale Value")
+            plt.ylabel("Pixel Count")
+            plt.xlim([0, 255])
+
+            # plot normalized cumulative histogram for equalized image
+            plt.plot(cumNormHist, color="k")
+            plt.show()
+        else:
+            # convert image to numpy array
+            imageArr = np.array(self.base_image)
+
+            # calculate cumulative normalized new pixel values for each color channel
+            equalizedPixels = np.zeros_like(imageArr)
+            for channel in range(3):
+                # calculate normalized histogram
+                hist, _ = np.histogram(imageArr[:, :, channel], bins=256)
+                normHist = hist / np.sum(hist)
+
+                # calculate cumulative normalized new pixel values
+                cdf = np.cumsum(normHist)
+                cdfNormalized = 255 * cdf / cdf[-1]
+
+                # find indices of pixels with intensity i
+                for i in range(256):
+                    idx = imageArr[:, :, channel] == i
+                    # set new intensity for those pixels
+                    equalizedPixels[idx, channel] = cdfNormalized[i]
+
+            # create new image based on the equalized pixels
+            newImage = PILImage.fromarray(equalizedPixels.astype("uint8"), mode="RGB")
+            self.base_image = newImage
+            self.non_rotated_image = self.base_image
+
+            # create or update image_wrapper with the equalized image
+            self.image_wrapper = ImageWrapper(
+                self.base_image.width, self.base_image.height
+            )
+            self.update_image_wrapper_from_pil(self.base_image)
+            self.display_image(self.base_image)
+
+            # configure and draw the histogram figure
+            plt.figure()
+            plt.title("Normalized Cumulative RGB Histogram")
+            plt.xlabel("RGB Value")
+            plt.ylabel("Pixel Count")
+            plt.xlim([0, 255])
+
+            # plot normalized cumulative histograms for each color channel
+            for channel, color in zip(range(3), ("r", "g", "b")):
+                hist, _ = np.histogram(imageArr[:, :, channel], bins=256)
+                normHist = hist / np.sum(hist)
+                cumNormHist = np.cumsum(normHist)
+                plt.plot(cumNormHist, color=color, alpha=0.5, label=color.capitalize())
+            plt.show()
 
 
-bw1 = ttk.Button(
-    buttonsFrame,
-    text="Use Webcam",
-    command=lambda: [openWebcam()],
-)
-bw1.pack(side=tk.LEFT)
-
-b13 = ttk.Button(
-    buttonsFrame,
-    text="Calculate Histogram",
-    command=lambda: [
-        toolboxImage.generateHistogram(),
-        updateImage(),
-    ],
-)
-b13.pack(side=tk.LEFT)
-
-b14 = ttk.Button(
-    buttonsFrame,
-    text="Equalize Histogram",
-    command=lambda: [
-        toolboxImage.generateEqualizedHistogram(),
-        updateImage(),
-    ],
-)
-b14.pack(side=tk.LEFT)
-
-l7 = ttk.Label(
-    buttonsFrame8, text="Enter 2D array representing kernel (must include '[]')"
-)
-l7.pack(side=tk.LEFT)
-
-t7 = ttk.Entry(buttonsFrame8, textvariable=kernel, width=25)
-t7.pack(side=tk.LEFT)
-
-b15 = ttk.Button(
-    buttonsFrame8,
-    text="Apply Convolution",
-    command=lambda: [
-        toolboxImage.convolution(kernel.get()),
-        updateImage(),
-    ],
-)
-b15.pack(side=tk.LEFT)
-
-b16 = ttk.Button(
-    buttonsFrame9,
-    text="Min Filter",
-    command=lambda: [
-        toolboxImage.minFilter(),
-        updateImage(),
-    ],
-)
-b16.pack(side=tk.LEFT)
-
-b17 = ttk.Button(
-    buttonsFrame9,
-    text="Median Filter",
-    command=lambda: [
-        toolboxImage.medianFilter(),
-        updateImage(),
-    ],
-)
-b17.pack(side=tk.LEFT)
-
-b18 = ttk.Button(
-    buttonsFrame9,
-    text="Max Filter",
-    command=lambda: [
-        toolboxImage.maxFilter(),
-        updateImage(),
-    ],
-)
-b18.pack(side=tk.LEFT)
-
-b19 = ttk.Button(
-    buttonsFrame9,
-    text="Edge Detection",
-    command=lambda: [
-        toolboxImage.edgeDetection(),
-        updateImage(),
-    ],
-)
-b19.pack(side=tk.LEFT)
-
-canvas.bind("<Button-1>", getMousePosition)
-canvas.bind("<B1-Motion>", updateSelectionRect)
-
-root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ImageEditorApp(root)
+    root.mainloop()

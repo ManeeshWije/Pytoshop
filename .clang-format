@@ -1,0 +1,5 @@
+IndentWidth: 4 
+TabWidth: 4 
+AccessModifierOffset: 0 
+IndentAccessModifiers: true
+ColumnLimit: 120
