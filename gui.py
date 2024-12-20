@@ -146,18 +146,6 @@ class ImageEditorApp:
             side=tk.LEFT, padx=5
         )
 
-        # Crop Mode Dropdown
-        crop_mode_var = tk.StringVar(value="None")
-        ttk.Label(crop_frame, text="Mode:").pack(side=tk.LEFT, padx=5)
-        crop_mode_menu = ttk.OptionMenu(
-            crop_frame,
-            crop_mode_var,
-            "None",
-            "Circular Indexing",
-            "Reflected Indexing",
-        )
-        crop_mode_menu.pack(side=tk.LEFT, padx=5)
-
         ttk.Button(
             crop_frame,
             text="Crop",
@@ -166,7 +154,6 @@ class ImageEditorApp:
                 self.crop_start_y.get(),
                 self.crop_end_x.get(),
                 self.crop_end_y.get(),
-                crop_mode_var.get(),
             ),
         ).pack(side=tk.LEFT, padx=5)
 
@@ -371,18 +358,7 @@ class ImageEditorApp:
             self.base_image = rotated_image
             self.display_image(self.base_image)
 
-    def crop_image(self, start_x, start_y, end_x, end_y, crop_mode):
-        mode = 0
-        if crop_mode == "None":
-            mode = 0
-        elif crop_mode == "Circular Indexing":
-            mode = 1
-        elif crop_mode == "Reflected Indexing":
-            mode = 2
-        else:
-            print("ERROR: Invalid crop mode")
-            return
-
+    def crop_image(self, start_x, start_y, end_x, end_y):
         if self.base_image:
             image_width = self.base_image.width
             image_height = self.base_image.height
@@ -403,7 +379,7 @@ class ImageEditorApp:
 
             if self.image_wrapper:
                 self.image_wrapper.crop(
-                    int(start_x), int(start_y), int(end_x), int(end_y), mode
+                    int(start_x), int(start_y), int(end_x), int(end_y)
                 )
                 cropped_image = self.image_wrapper.to_pil_image()
                 self.base_image = cropped_image

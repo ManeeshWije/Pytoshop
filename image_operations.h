@@ -25,7 +25,7 @@ void rotate_image(Image *img, double degrees, int n);
 void edge_detection(Image *img);
 void vertical_shear(Image *img, float offset);
 void horizontal_shear(Image *img, float offset);
-void crop(Image *img, int start_x, int start_y, int end_x, int end_y, int mode);
+void crop(Image *img, int start_x, int start_y, int end_x, int end_y);
 void linear_mapping(Image *img, float a, float b);
 void power_mapping(Image *img, float gamma);
 void min_filter(Image *img);

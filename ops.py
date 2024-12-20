@@ -49,7 +49,6 @@ lib.crop.argtypes = [
     ctypes.c_int,
     ctypes.c_int,
     ctypes.c_int,
-    ctypes.c_int,
 ]
 lib.crop.restype = None
 
@@ -108,8 +107,8 @@ class ImageWrapper:
     def horizontal_shear(self, offset):
         lib.horizontal_shear(self.img, offset)
 
-    def crop(self, start_x, start_y, end_x, end_y, mode):
-        lib.crop(self.img, start_x, start_y, end_x, end_y, mode)
+    def crop(self, start_x, start_y, end_x, end_y):
+        lib.crop(self.img, start_x, start_y, end_x, end_y)
 
     def linear_mapping(self, a, b):
         lib.linear_mapping(self.img, a, b)

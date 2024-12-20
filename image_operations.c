@@ -376,53 +376,47 @@ void vertical_shear(Image *img, float offset) {
     free_image(sheared_img);
 }
 
-void crop(Image *img, int start_x, int start_y, int end_x, int end_y, int mode) {
+void crop(Image *img, int start_x, int start_y, int end_x, int end_y) {
     if (!img || img->width <= 0 || img->height <= 0)
         return;
 
-    printf("MODE %d\n", mode);
+    // Calculate the dimensions of the cropped region
+    int crop_width = end_x - start_x;
+    int crop_height = end_y - start_y;
 
-    // Iterate through all pixels in the image
-    for (int y = 0; y < img->height; y++) {
-        for (int x = 0; x < img->width; x++) {
-            // If the current pixel is within the crop region
-            if (x >= start_x && x < end_x && y >= start_y && y < end_y) {
-                // Inside the crop region, keep the pixel as is
-                img->rgb[y * img->width + x] = img->rgb[y * img->width + x];
-            } else {
-                // Outside the crop region, apply the selected mode
-                if (mode == 0) {
-                    // Black background (out-of-bounds pixels are black)
-                    img->rgb[y * img->width + x] = (RGBPixel){0, 0, 0};
-                } else if (mode == 1) {
-                    // Circular indexing (wrap around the image)
-                    int orig_x = (x + img->width) % img->width;   // Wrap around horizontally
-                    int orig_y = (y + img->height) % img->height; // Wrap around vertically
-                    img->rgb[y * img->width + x] = img->rgb[orig_y * img->width + orig_x];
-                } else if (mode == 2) {
-                    // Reflected indexing (mirror the image)
-                    int orig_x = x;
-                    int orig_y = y;
+    // Create a new image for the cropped result
+    Image *cropped = create_image(crop_width, crop_height);
+    if (!cropped)
+        return;
 
-                    // Reflect x-coordinate
-                    if (x < 0) {
-                        orig_x = -x;
-                    } else if (x >= img->width) {
-                        orig_x = img->width - (x - img->width + 1);
-                    }
+    // Fill the cropped image according to the selected mode
+    for (int y = 0; y < crop_height; y++) {
+        for (int x = 0; x < crop_width; x++) {
+            // Calculate source coordinates
+            int src_x = x + start_x;
+            int src_y = y + start_y;
 
-                    // Reflect y-coordinate
-                    if (y < 0) {
-                        orig_y = -y;
-                    } else if (y >= img->height) {
-                        orig_y = img->height - (y - img->height + 1);
-                    }
-
-                    img->rgb[y * img->width + x] = img->rgb[orig_y * img->width + orig_x];
-                }
+            RGBPixel pixel;
+            if (src_x >= 0 && src_x < img->width && src_y >= 0 && src_y < img->height) {
+                pixel = img->rgb[src_y * img->width + src_x];
             }
+            cropped->rgb[y * crop_width + x] = pixel;
         }
     }
+
+    // Replace the original image with the cropped image
+    free(img->rgb);
+    img->rgb = malloc(crop_width * crop_height * sizeof(RGBPixel));
+    if (!img->rgb) {
+        free_image(cropped);
+        return;
+    }
+
+    memcpy(img->rgb, cropped->rgb, crop_width * crop_height * sizeof(RGBPixel));
+    img->width = crop_width;
+    img->height = crop_height;
+
+    free_image(cropped);
 }
 
 void linear_mapping(Image *img, float a, float b) {
